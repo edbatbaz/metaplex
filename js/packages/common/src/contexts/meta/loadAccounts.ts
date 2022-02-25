@@ -58,6 +58,7 @@ import { getCardsByPackSet } from '../../models/packs/accounts/PackCard';
 import { processPackCards } from './processPackCards';
 import { getProvingProcessByPackSetAndWallet } from '../../models/packs/accounts/ProvingProcess';
 import { processProvingProcess } from './processProvingProcess';
+import { MetadataData } from '@metaplex-foundation/mpl-token-metadata';
 
 const MULTIPLE_ACCOUNT_BATCH_SIZE = 100;
 
@@ -99,33 +100,28 @@ export const pullStoreMetadata = async (
   return tempCache;
 };
 
-export const pullYourMetadata = async (
+export const processMints = async (
   connection: Connection,
-  userTokenAccounts: TokenAccount[],
+  mintList: StringPublicKey[],
   tempCache: MetaState,
+  updateTemp: UpdateStateValueFunc,
+  sourceMessage: string = 'mints',
 ) => {
-  const updateTemp = makeSetter(tempCache);
-
-  console.log('--------->Pulling metadata for user.');
+  console.log('--------->Pulling metadata for ', sourceMessage);
   let currBatch: string[] = [];
   let batches = [];
   const editions = [];
-  for (let i = 0; i < userTokenAccounts.length; i++) {
-    if (userTokenAccounts[i].info.amount.toNumber() == 1) {
-      if (2 + currBatch.length > MULTIPLE_ACCOUNT_BATCH_SIZE) {
-        batches.push(currBatch);
-        currBatch = [];
-      } else {
-        const edition = await getEdition(
-          userTokenAccounts[i].info.mint.toBase58(),
-        );
-        const newAdd = [
-          await getMetadata(userTokenAccounts[i].info.mint.toBase58()),
-          edition,
-        ];
-        editions.push(edition);
-        currBatch = currBatch.concat(newAdd);
-      }
+
+  for (let i = 0; i < mintList.length; i++) {
+    const mintAddress = mintList[i];
+    const edition = await getEdition(mintAddress);
+    const newAdd = [await getMetadata(mintAddress), edition];
+    editions.push(edition);
+    currBatch = currBatch.concat(newAdd);
+
+    if (2 + currBatch.length >= MULTIPLE_ACCOUNT_BATCH_SIZE) {
+      batches.push(currBatch);
+      currBatch = [];
     }
   }
 
@@ -134,7 +130,8 @@ export const pullYourMetadata = async (
   }
 
   console.log(
-    '------> From token accounts for user',
+    '------> From ',
+    sourceMessage,
     'produced',
     batches.length,
     'batches of accounts to pull',
@@ -168,7 +165,7 @@ export const pullYourMetadata = async (
     }
   }
 
-  console.log('------> Pulling master editions for user');
+  console.log('------> Pulling master editions for ', sourceMessage);
   currBatch = [];
   batches = [];
   for (let i = 0; i < editions.length; i++) {
@@ -185,7 +182,8 @@ export const pullYourMetadata = async (
   }
 
   console.log(
-    '------> From token accounts for user',
+    '------> From ',
+    sourceMessage,
     'produced',
     batches.length,
     'batches of accounts to pull',
@@ -218,12 +216,43 @@ export const pullYourMetadata = async (
       console.log('------->Failed to pull batch', i, 'skipping');
     }
   }
+};
 
+export const pullMintsMetadata = async (
+  connection: Connection,
+  mintList: StringPublicKey[],
+  tempCache: MetaState,
+  sourceMessage: string = 'mints',
+) => {
+  const updateTemp = makeSetter(tempCache);
+  await processMints(
+    connection,
+    mintList,
+    tempCache,
+    updateTemp,
+    sourceMessage,
+  );
   await postProcessMetadata(tempCache);
 
-  console.log('-------->User metadata processing complete.');
+  console.log('-------->', sourceMessage, ' metadata processing complete.');
 
   return tempCache;
+};
+
+export const pullYourMetadata = async (
+  connection: Connection,
+  userTokenAccounts: TokenAccount[],
+  tempCache: MetaState,
+) => {
+  const mintList: StringPublicKey[] = [];
+
+  for (let i = 0; i < userTokenAccounts.length; i++) {
+    if (userTokenAccounts[i].info.amount.toNumber() == 1) {
+      mintList.push(userTokenAccounts[i].info.mint.toBase58());
+    }
+  }
+
+  return await pullMintsMetadata(connection, mintList, tempCache, 'User');
 };
 
 export const pullPayoutTickets = async (
@@ -351,9 +380,9 @@ export const pullPack = async ({
     );
   }
 
-  const metadataKeys = Object.values(state.packCardsByPackSet[packSetKey]).map(
-    ({ info }) => info.metadata,
-  );
+  const metadataKeys = Object.values(
+    state.packCardsByPackSet[packSetKey] || {},
+  ).map(({ info }) => info.metadata);
   const newState = await pullMetadataByKeys(connection, state, metadataKeys);
 
   await pullEditions(
@@ -363,7 +392,7 @@ export const pullPack = async ({
     metadataKeys.map(m => newState.metadataByMetadata[m]),
   );
 
-  return state;
+  return newState;
 };
 
 export const pullAuctionSubaccounts = async (
@@ -664,6 +693,8 @@ export const pullPage = async (
         }
       }
 
+      const collections = new Set<string>();
+
       for (let i = 0; i < auctionCaches.keys.length; i++) {
         const auctionCache = tempCache.auctionCaches[auctionCaches.keys[i]];
 
@@ -671,6 +702,23 @@ export const pullPage = async (
           s => tempCache.metadataByMetadata[s],
         );
         tempCache.metadataByAuction[auctionCache.info.auction] = metadata;
+        for (const m of metadata) {
+          const data: MetadataData = m?.info as unknown as MetadataData;
+          if (data?.collection) {
+            collections.add(data.collection.key);
+          }
+        }
+      }
+      await processMints(
+        connection,
+        Array.from(collections),
+        tempCache,
+        updateTemp,
+      );
+
+      for (const collection of collections) {
+        tempCache.metadataByCollection[collection] =
+          tempCache.metadataByMint[collection];
       }
     }
 
@@ -1198,7 +1246,13 @@ export const metadataByMintUpdater = async (
 ) => {
   const key = metadata.info.mint;
   if (isMetadataPartOfStore(metadata, state.whitelistedCreatorsByCreator)) {
-    await metadata.info.init();
+    //await metadata.info.init();
+
+    // The mpl does not have the init() method implemented Yet so we do it manually in the mean time.
+    const edition = await getEdition(metadata.info.mint);
+    metadata.info.edition = edition;
+    metadata.info.masterEdition = edition;
+
     const masterEditionKey = metadata.info?.masterEdition;
     if (masterEditionKey) {
       state.metadataByMasterEdition[masterEditionKey] = metadata;
@@ -1219,7 +1273,13 @@ export const initMetadata = async (
   setter: UpdateStateValueFunc,
 ) => {
   if (isMetadataPartOfStore(metadata, whitelistedCreators)) {
-    await metadata.info.init();
+    //await metadata.info.init();
+
+    // The mpl does not have the init() method implemented Yet so we do it manually in the mean time.
+    const edition = await getEdition(metadata.info.mint);
+    metadata.info.edition = edition;
+    metadata.info.masterEdition = edition;
+
     setter('metadataByMint', metadata.info.mint, metadata);
     setter('metadata', '', metadata);
     const masterEditionKey = metadata.info?.masterEdition;

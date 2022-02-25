@@ -36,7 +36,7 @@ export interface MetaState {
   metadata: ParsedAccount<Metadata>[];
   metadataByMint: Record<string, ParsedAccount<Metadata>>;
   metadataByMetadata: Record<string, ParsedAccount<Metadata>>;
-
+  metadataByCollection: Record<string, ParsedAccount<Metadata>>;
   metadataByAuction: Record<string, ParsedAccount<Metadata>[]>;
   metadataByMasterEdition: Record<string, ParsedAccount<Metadata>>;
   editions: Record<string, ParsedAccount<Edition>>;
@@ -92,6 +92,7 @@ export interface MetaState {
 
 export interface MetaContextState extends MetaState {
   isLoading: boolean;
+  isFetching: boolean;
   update: (
     auctionAddress?: any,
     bidderAddress?: any,
@@ -109,6 +110,10 @@ export interface MetaContextState extends MetaState {
   pullPackPage: (
     userTokenAccounts: TokenAccount[],
     packSetKey: StringPublicKey,
+  ) => Promise<void>;
+  pullUserMetadata: (
+    userTokenAccounts: TokenAccount[],
+    tempState?: MetaState,
   ) => Promise<void>;
 }
 

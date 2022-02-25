@@ -6,7 +6,6 @@ import {
   SystemProgram,
 } from '@solana/web3.js';
 import { serialize } from 'borsh';
-
 import { programIds, toPublicKey, StringPublicKey } from '../../../utils';
 import { PACKS_SCHEMA, RequestCardToRedeemArgs } from '../../..';
 import { RequestCardToRedeemParams } from '..';
@@ -17,23 +16,21 @@ import {
 
 interface Params extends RequestCardToRedeemParams {
   packSetKey: PublicKey;
-  edition: StringPublicKey;
+  editionKey: StringPublicKey;
   editionMint: StringPublicKey;
-  packVoucher: StringPublicKey;
-  tokenAccount: StringPublicKey;
+  voucherKey: StringPublicKey;
+  tokenAccount?: StringPublicKey;
   wallet: PublicKey;
-  randomOracle: StringPublicKey;
 }
 
 export async function requestCardToRedeem({
   index,
   packSetKey,
-  edition,
+  editionKey,
   editionMint,
-  packVoucher,
+  voucherKey,
   tokenAccount,
   wallet,
-  randomOracle,
 }: Params): Promise<TransactionInstruction> {
   const PROGRAM_IDS = programIds();
 
@@ -75,7 +72,7 @@ export async function requestCardToRedeem({
     },
     // edition
     {
-      pubkey: toPublicKey(edition),
+      pubkey: toPublicKey(editionKey),
       isSigner: false,
       isWritable: false,
     },
@@ -87,7 +84,7 @@ export async function requestCardToRedeem({
     },
     // pack_voucher
     {
-      pubkey: toPublicKey(packVoucher),
+      pubkey: toPublicKey(voucherKey),
       isSigner: false,
       isWritable: false,
     },
@@ -103,9 +100,9 @@ export async function requestCardToRedeem({
       isSigner: true,
       isWritable: true,
     },
-    // randomness_oracle
+    // slot hash
     {
-      pubkey: toPublicKey(randomOracle),
+      pubkey: toPublicKey(PROGRAM_IDS.oracle),
       isSigner: false,
       isWritable: false,
     },
@@ -123,7 +120,7 @@ export async function requestCardToRedeem({
     },
     // spl_token program
     {
-      pubkey: programIds().token,
+      pubkey: PROGRAM_IDS.token,
       isSigner: false,
       isWritable: false,
     },
@@ -133,13 +130,16 @@ export async function requestCardToRedeem({
       isSigner: false,
       isWritable: false,
     },
+  ];
+
+  if (tokenAccount) {
     // user_token_account
-    {
+    keys.push({
       pubkey: toPublicKey(tokenAccount),
       isSigner: false,
       isWritable: true,
-    },
-  ];
+    });
+  }
 
   return new TransactionInstruction({
     keys,

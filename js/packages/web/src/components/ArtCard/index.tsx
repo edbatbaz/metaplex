@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardProps, Button, Badge } from 'antd';
 import { MetadataCategory, StringPublicKey } from '@oyster/common';
-import { ArtContent } from './../ArtContent';
+import { ArtContent } from '../ArtContent';
 import { useArt } from '../../hooks';
 import { Artist, ArtType } from '../../types';
 import { MetaAvatar } from '../MetaAvatar';
@@ -22,7 +22,7 @@ export interface ArtCardProps extends CardProps {
   creators?: Artist[];
   preview?: boolean;
   small?: boolean;
-  close?: () => void;
+  onClose?: () => void;
 
   height?: number;
   artView?: boolean;
@@ -32,25 +32,27 @@ export interface ArtCardProps extends CardProps {
 }
 
 export const ArtCard = (props: ArtCardProps) => {
-  let {
+  const {
     className,
     small,
     category,
     image,
     animationURL,
-    name,
     preview,
-    creators,
-    description,
-    close,
+    onClose,
     pubkey,
     height,
     artView,
     width,
     count,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    name: _name,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    creators: _creators,
     ...rest
   } = props;
   const art = useArt(pubkey);
+  let { name, creators } = props;
   creators = art?.creators || creators || [];
   name = art?.title || name || ' ';
 
@@ -69,14 +71,14 @@ export const ArtCard = (props: ArtCardProps) => {
       className={`art-card ${small ? 'small' : ''} ${className ?? ''}`}
       {...rest}
     >
-      {close && (
+      {onClose && (
         <Button
           className="card-close-button"
           shape="circle"
           onClick={e => {
             e.stopPropagation();
             e.preventDefault();
-            close && close();
+            onClose && onClose();
           }}
         >
           X

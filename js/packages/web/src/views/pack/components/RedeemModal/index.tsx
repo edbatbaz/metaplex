@@ -7,6 +7,7 @@ import TransactionApprovalStep from './components/TransactionApprovalStep';
 import { useArt } from '../../../../hooks';
 import { usePack } from '../../contexts/PackContext';
 import ClaimingStep from './components/ClaimingStep';
+import ClaimingError from './components/ClaimingStep/ClaimingError';
 
 interface RedeemModalProps {
   isModalVisible: boolean;
@@ -17,6 +18,7 @@ enum openState {
   Initial,
   TransactionApproval,
   Claiming,
+  Error,
 }
 
 const RedeemModal = ({
@@ -29,11 +31,15 @@ const RedeemModal = ({
     metadataByPackCard,
     voucherMetadataKey,
     provingProcess,
+    isLoading,
   } = usePack();
   const [modalState, setModalState] = useState<openState>(openState.Initial);
+  const [error, setError] = useState('');
 
   const numberOfNFTs = pack?.info?.packCards || 0;
   const numberOfAttempts = pack?.info?.allowedAmountToRedeem || 0;
+  const shouldEnableRedeem =
+    process.env.NEXT_ENABLE_NFT_PACKS_REDEEM === 'true';
 
   const art = useArt(voucherMetadataKey);
   const creators = (art.creators || []).map(
@@ -45,8 +51,9 @@ const RedeemModal = ({
 
     try {
       await handleOpenPack();
-    } catch {
-      setModalState(openState.Initial);
+    } catch (e: any) {
+      setModalState(openState.Error);
+      setError(e?.message || '');
     }
   };
 
@@ -65,17 +72,23 @@ const RedeemModal = ({
 
   const isModalClosable = modalState === openState.Initial;
   const isClaiming = modalState === openState.Claiming;
+  const isClaimingError = modalState === openState.Error;
+  const isLoadingMetadata =
+    isLoading ||
+    Object.values(metadataByPackCard || {}).length !==
+      (pack?.info.packCards || 0);
 
   return (
     <Modal
       className="modal-redeem-wr"
       centered
-      width={500}
+      width={575}
       mask={false}
       visible={isModalVisible}
       onCancel={handleClose}
       footer={null}
       closable={isModalClosable}
+      maskClosable={false}
     >
       <div className="modal-redeem">
         {isClaiming && <ClaimingStep onClose={handleClose} />}
@@ -88,24 +101,37 @@ const RedeemModal = ({
                 numberOfAttempts={numberOfAttempts}
                 numberOfNFTs={numberOfNFTs}
                 creators={creators}
+                isLoadingMetadata={isLoadingMetadata}
               />
             )}
             {modalState === openState.TransactionApproval && (
               <TransactionApprovalStep
-                goBack={() => setModalState(openState.Claiming)}
+                goBack={() => setModalState(openState.Initial)}
               />
             )}
-            <div className="modal-redeem__footer">
-              <p className="general-desc">
-                Once opened, a Pack cannot be resealed.
-              </p>
+            {isClaimingError && (
+              <ClaimingError
+                onDismiss={() => setModalState(openState.Initial)}
+                error={error}
+              />
+            )}
+            {shouldEnableRedeem && !isClaimingError && (
+              <div className="modal-redeem__footer">
+                <p className="general-desc">
+                  Once opened, a Pack cannot be resealed.
+                </p>
 
-              <button className="modal-redeem__open-nft" onClick={onClickOpen}>
-                <span>
-                  {provingProcess ? 'Resume Opening Pack' : 'Open Pack'}
-                </span>
-              </button>
-            </div>
+                <button
+                  className="modal-redeem__open-nft"
+                  disabled={isLoadingMetadata}
+                  onClick={onClickOpen}
+                >
+                  <span>
+                    {provingProcess ? 'Resume Opening Pack' : 'Open Pack'}
+                  </span>
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>
